@@ -1,13 +1,15 @@
 import json
-from agents.base import BaseAgent, AgentResult, Tool
-
+from agents.base import BaseAgent, AgentResult
+from utils.json_parser import extract_json
+from utils.config_loader import get_model, get_max_tokens
 
 SYSTEM_PROMPT = """
 You are the Product Development analyst for a real estate SaaS startup.
 Analyze user feedback, cluster by theme, score features by impact (1-10) and effort (1-10).
-Priority score = impact / effort. Higher = do first.
+Priority score = impact / effort — higher means do it sooner.
+Think like a PM: be opinionated, make a call, don't hedge.
 
-Return JSON:
+Return raw JSON only (no markdown fences):
 {
   "themes": [{"name": "...", "feedback_count": 0, "examples": ["..."]}],
   "features": [
@@ -15,16 +17,24 @@ Return JSON:
       "title": "...",
       "description": "...",
       "theme": "...",
-      "impact": 0,
-      "effort": 0,
-      "priority_score": 0.0,
-      "recommendation": "..."
+      "impact": 8,
+      "effort": 3,
+      "priority_score": 2.67,
+      "recommendation": "Ship in next sprint|Backlog|Needs more research|Won't do"
     }
   ],
-  "roadmap_update": "...",
-  "next_sprint_suggestion": "..."
+  "roadmap_update": "narrative summary of what changed and why",
+  "next_sprint_suggestion": "one specific sprint goal"
 }
 """
+
+DEFAULT_FEEDBACK = [
+    "Need better mobile experience for showing properties on the go",
+    "Integration with DocuSign for e-signatures would save hours per deal",
+    "Bulk import from MLS would be huge — I have 200 listings to import",
+    "Automated follow-up reminders when a lead goes cold",
+    "The reporting dashboard needs more filters — city, price range, agent",
+]
 
 
 class ProductAgent(BaseAgent):
@@ -32,38 +42,29 @@ class ProductAgent(BaseAgent):
         super().__init__(
             name="product",
             system_prompt=SYSTEM_PROMPT,
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
+            model=get_model("product"),
+            max_tokens=get_max_tokens("product"),
         )
 
     def run(self, task_payload: dict) -> AgentResult:
         try:
-            feedback = task_payload.get("feedback", [])
-            if not feedback:
-                feedback = [
-                    "Need better mobile experience for showing properties on the go",
-                    "Integration with DocuSign for e-signatures would save hours",
-                    "Bulk import from MLS would be huge",
-                    "Can we get automated follow-up reminders?",
-                    "The reporting dashboard needs more filters",
-                ]
+            feedback = task_payload.get("feedback") or DEFAULT_FEEDBACK
+            if not isinstance(feedback, list):
+                feedback = [str(feedback)]
 
-            prompt = f"""
-Analyze this user feedback and produce a prioritized feature roadmap update:
-{json.dumps(feedback, indent=2)}
-
-Return JSON only.
-"""
+            prompt = (
+                f"Analyze this user feedback and produce a prioritized roadmap update:\n"
+                f"{json.dumps(feedback, indent=2)}\n\n"
+                "Return raw JSON only."
+            )
             raw = self._run_loop(prompt)
+            analysis = extract_json(raw, expect="object")
 
-            try:
-                start = raw.find("{")
-                end = raw.rfind("}") + 1
-                analysis = json.loads(raw[start:end]) if start >= 0 else {"raw": raw}
-            except Exception:
-                analysis = {"raw": raw}
+            if not analysis.get("features"):
+                analysis = {"roadmap_update": raw, "features": [], "themes": [], "next_sprint_suggestion": ""}
 
             features = analysis.get("features", [])
+            sorted_features = sorted(features, key=lambda f: f.get("priority_score", 0), reverse=True)
 
             return AgentResult(
                 agent="product",
@@ -71,8 +72,9 @@ Return JSON only.
                 output={"analysis": analysis},
                 requires_approval=True,
                 preview={
-                    "feature_count": len(features),
-                    "top_features": features[:3] if features else [],
+                    "feature_count": len(sorted_features),
+                    "top_features": sorted_features[:3],
+                    "themes": analysis.get("themes", []),
                     "roadmap_update": analysis.get("roadmap_update", ""),
                     "next_sprint": analysis.get("next_sprint_suggestion", ""),
                     "action": "Write roadmap update to Google Drive",
@@ -88,4 +90,8 @@ Return JSON only.
             )
 
     def execute_approved(self, action_type: str, preview: dict) -> dict:
-        return {"roadmap_updated": True, "top_features": preview.get("top_features", [])}
+        return {
+            "roadmap_updated": True,
+            "top_features": preview.get("top_features", []),
+            "next_sprint": preview.get("next_sprint", ""),
+        }

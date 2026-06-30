@@ -1,5 +1,6 @@
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st
 from orchestrator.router import dispatch
@@ -11,82 +12,106 @@ st.markdown("""
 [data-testid="stSidebar"] { background: #407E3C !important; }
 [data-testid="stSidebar"] * { color: white !important; }
 h1, h2, h3 { color: #407E3C !important; }
-.stButton > button { background: #407E3C !important; color: white !important; border: none !important; border-radius: 6px !important; }
-.agent-card { background: white; border: 1px solid #e8f5e9; border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+.stButton > button {
+    background: #407E3C !important; color: white !important;
+    border: none !important; border-radius: 6px !important; font-weight: 600 !important;
+}
+.stButton > button:hover { background: #5a9e56 !important; }
 </style>""", unsafe_allow_html=True)
 
-st.title("⚡ Agent Control Center")
+st.title("Agent Control Center")
+st.caption("6 AI agents running your real estate SaaS business. All approval-gated before execution.")
 
 AGENTS = [
     {
         "id": "lead_gen",
-        "name": "Lead Gen Agent",
-        "icon": "🔍",
-        "desc": "Finds and qualifies real estate professionals matching your ICP",
-        "schedule": "Daily 7:00 AM",
-        "trigger_payload": {"query": "Find 10 real estate agents and brokers in major US cities matching our ICP"},
+        "label": "LEADS",
+        "name": "Lead Generation",
+        "desc": "Finds and qualifies real estate professionals matching your ICP. Scores by company size, tech adoption, and social presence.",
+        "schedule": "Daily at 07:00",
+        "approval": "Required — adds leads to Airtable CRM",
+        "payload": {"query": "Find 10 real estate agents and brokers in major US cities matching our ICP"},
     },
     {
         "id": "content",
-        "name": "Content Agent",
-        "icon": "✍️",
-        "desc": "Generates RE industry content for LinkedIn, Twitter, and Instagram",
-        "schedule": "Mon/Wed/Fri 8:00 AM",
-        "trigger_payload": {"platform": "LinkedIn", "content_type": "Market Update"},
+        "label": "CONTENT",
+        "name": "Content",
+        "desc": "Researches RE industry news and generates platform-specific posts for LinkedIn, Twitter, and Instagram.",
+        "schedule": "Mon / Wed / Fri at 08:00",
+        "approval": "Required — schedules post via Buffer",
+        "payload": {"platform": "LinkedIn", "content_type": "Market Update"},
     },
     {
         "id": "sales",
-        "name": "Sales Agent",
-        "icon": "📧",
-        "desc": "Writes personalized outreach emails for uncontacted CRM leads",
-        "schedule": "Daily 9:00 AM (weekdays)",
-        "trigger_payload": {},
+        "label": "SALES",
+        "name": "Sales",
+        "desc": "Pulls uncontacted leads from CRM and writes personalized outreach emails grounded in their context.",
+        "schedule": "Weekdays at 09:00",
+        "approval": "Required — creates Gmail draft",
+        "payload": {},
     },
     {
         "id": "marketing",
-        "name": "Marketing Agent",
-        "icon": "📊",
-        "desc": "Analyzes performance and recommends weekly campaigns",
-        "schedule": "Monday 8:00 AM",
-        "trigger_payload": {"context": "Generate this week's marketing strategy"},
+        "label": "MARKETING",
+        "name": "Marketing",
+        "desc": "Analyzes RE industry trends and recommends weekly campaigns by channel with rationale and impact estimates.",
+        "schedule": "Monday at 08:00",
+        "approval": "Required — logs to Google Sheets",
+        "payload": {"context": "Generate this week's marketing strategy for a real estate SaaS"},
     },
     {
         "id": "product",
-        "name": "Product Dev Agent",
-        "icon": "🛠",
-        "desc": "Triages user feedback and updates the product roadmap",
-        "schedule": "Friday 3:00 PM",
-        "trigger_payload": {},
+        "label": "PRODUCT",
+        "name": "Product Dev",
+        "desc": "Clusters user feedback by theme, scores features by impact vs effort, and outputs a prioritized roadmap update.",
+        "schedule": "Friday at 15:00",
+        "approval": "Required — writes to Google Drive",
+        "payload": {},
     },
     {
         "id": "operations",
-        "name": "Operations Agent",
-        "icon": "⚙️",
-        "desc": "Generates daily CEO briefing and sends to Slack",
-        "schedule": "Daily 6:00 AM",
-        "trigger_payload": {},
+        "label": "OPS",
+        "name": "Operations",
+        "desc": "Generates a terse daily CEO briefing from system stats, pending approvals, and calendar — pushes to Slack.",
+        "schedule": "Daily at 06:00",
+        "approval": "None — read-only, auto-sends to Slack",
+        "payload": {},
     },
 ]
 
 for agent in AGENTS:
-    with st.container():
-        col_info, col_trigger = st.columns([4, 1])
-        with col_info:
-            st.markdown(f"### {agent['icon']} {agent['name']}")
-            st.caption(agent["desc"])
-            st.caption(f"🕐 Schedule: {agent['schedule']}")
-            logs = get_agent_logs(agent["id"], limit=1)
-            if logs:
-                st.caption(f"Last run: {logs[0]['timestamp'][:16]} — {logs[0]['action']}")
-        with col_trigger:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"Run Now", key=f"run_{agent['id']}"):
-                with st.spinner(f"Running {agent['name']}..."):
-                    result = dispatch(agent["id"], "manual_trigger", agent["trigger_payload"])
-                if result.get("status") == "awaiting_approval":
-                    st.success("✅ Done — check Approvals page")
-                elif result.get("status") == "completed":
-                    st.success("✅ Completed")
-                else:
-                    st.error(f"Error: {result.get('error', 'Unknown')}")
-        st.markdown("---")
+    col_label, col_info, col_meta, col_run = st.columns([1, 4, 3, 1])
+
+    with col_label:
+        st.markdown(
+            f"<div style='background:#407E3C;color:white;font-weight:700;"
+            f"font-size:11px;letter-spacing:1px;padding:6px 10px;"
+            f"border-radius:6px;text-align:center;margin-top:8px'>"
+            f"{agent['label']}</div>",
+            unsafe_allow_html=True,
+        )
+
+    with col_info:
+        st.markdown(f"**{agent['name']} Agent**")
+        st.caption(agent["desc"])
+
+    with col_meta:
+        logs = get_agent_logs(agent["id"], limit=1)
+        last_run = logs[0]["timestamp"][:16] if logs else "Never"
+        st.caption(f"Schedule: {agent['schedule']}")
+        st.caption(f"Approval: {agent['approval']}")
+        st.caption(f"Last run: {last_run}")
+
+    with col_run:
+        st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+        if st.button("Run", key=f"run_{agent['id']}"):
+            with st.spinner(f"Running {agent['name']}..."):
+                result = dispatch(agent["id"], "manual_trigger", agent["payload"])
+            if result.get("status") == "awaiting_approval":
+                st.success("Done — check Approvals")
+            elif result.get("status") == "completed":
+                st.success("Done")
+            else:
+                st.error(result.get("error", "Failed"))
+
+    st.markdown("---")

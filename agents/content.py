@@ -1,13 +1,13 @@
-import json
 from agents.base import BaseAgent, AgentResult, Tool
 from tools.web_research import search_re_news
+from utils.json_parser import extract_json
+from utils.config_loader import get_model, get_max_tokens, get_persona
 
-
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = get_persona("content") or """
 You are the Content strategist for a real estate SaaS startup targeting RE professionals.
 Create valuable, authoritative content. Voice: professional, insightful, data-backed. Never salesy.
 
-For each content request, produce a JSON object with:
+Produce a JSON object with exactly these keys:
 {
   "title": "...",
   "platform": "LinkedIn|Twitter|Instagram",
@@ -15,8 +15,10 @@ For each content request, produce a JSON object with:
   "body": "...",
   "hashtags": ["..."],
   "suggested_publish_time": "YYYY-MM-DD HH:MM",
-  "hook": "First line / opening hook"
+  "hook": "First sentence — the opening hook"
 }
+
+Return raw JSON only. No markdown fences, no prose outside the JSON.
 """
 
 
@@ -25,8 +27,8 @@ class ContentAgent(BaseAgent):
         super().__init__(
             name="content",
             system_prompt=SYSTEM_PROMPT,
-            model="claude-sonnet-4-6",
-            max_tokens=8192,
+            model=get_model("content"),
+            max_tokens=get_max_tokens("content"),
         )
 
     def _register_tools(self):
@@ -52,20 +54,17 @@ class ContentAgent(BaseAgent):
             platform = task_payload.get("platform", "LinkedIn")
             content_type = task_payload.get("content_type", "Market Update")
 
-            prompt = f"""
-Create {content_type} content for {platform}.
-Topic: {topic or 'choose a relevant current RE industry topic'}
-Research current news first, then write.
-Return a single JSON object (no markdown wrapping).
-"""
+            prompt = (
+                f"Create {content_type} content for {platform}.\n"
+                f"Topic: {topic or 'choose the most relevant current RE industry topic'}\n"
+                "Use get_re_news first to ground the content in real trends.\n"
+                "Return a single JSON object — no markdown, no extra text."
+            )
             raw = self._run_loop(prompt)
+            content_obj = extract_json(raw, expect="object")
 
-            try:
-                start = raw.find("{")
-                end = raw.rfind("}") + 1
-                content_obj = json.loads(raw[start:end]) if start >= 0 else {"body": raw}
-            except Exception:
-                content_obj = {"body": raw, "platform": platform}
+            if not content_obj.get("body"):
+                content_obj = {"body": raw, "platform": platform, "title": "Content Draft"}
 
             preview = {
                 "title": content_obj.get("title", "Content Draft"),

@@ -1,5 +1,6 @@
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st
 from orchestrator.router import dispatch
@@ -10,23 +11,30 @@ st.markdown("""
 [data-testid="stSidebar"] { background: #407E3C !important; }
 [data-testid="stSidebar"] * { color: white !important; }
 h1, h2, h3 { color: #407E3C !important; }
-.stButton > button { background: #407E3C !important; color: white !important; border: none !important; border-radius: 6px !important; }
+.stButton > button {
+    background: #407E3C !important; color: white !important;
+    border: none !important; border-radius: 6px !important; font-weight: 600 !important;
+}
+.stButton > button:hover { background: #5a9e56 !important; }
 </style>""", unsafe_allow_html=True)
 
-st.title("✍️ Content Engine")
+st.title("Content Engine")
+st.caption("Generate authoritative RE industry content. Agent researches current news before writing.")
 
-st.subheader("Generate New Content")
+st.subheader("Generate")
 
 col1, col2, col3 = st.columns(3)
 with col1:
     platform = st.selectbox("Platform", ["LinkedIn", "Twitter", "Instagram"])
 with col2:
-    content_type = st.selectbox("Type", ["Market Update", "Agent Tip", "Product Insight", "Industry News", "Case Study"])
+    content_type = st.selectbox(
+        "Type", ["Market Update", "Agent Tip", "Product Insight", "Industry News", "Case Study"]
+    )
 with col3:
-    topic = st.text_input("Topic (optional)", placeholder="e.g. Rising mortgage rates")
+    topic = st.text_input("Topic (optional)", placeholder="e.g. Rising mortgage rates impact on agents")
 
-if st.button("✍️ Generate Content"):
-    with st.spinner("Content Agent is writing..."):
+if st.button("Generate Content"):
+    with st.spinner("Content agent researching and writing..."):
         result = dispatch("content", "manual_trigger", {
             "platform": platform,
             "content_type": content_type,
@@ -34,35 +42,52 @@ if st.button("✍️ Generate Content"):
         })
 
     if result.get("status") == "awaiting_approval":
-        st.success("Content draft ready — go to Approvals to review and schedule.")
+        st.success("Draft ready — review it in Approvals before it goes live.")
         preview = result.get("preview", {})
-        if preview:
+        if preview.get("body"):
             st.markdown("---")
-            st.markdown(f"**Preview: {preview.get('title', '')}**")
-            st.markdown(f"*{preview.get('hook', '')}*")
-            st.text_area("Draft", preview.get("body", ""), height=200, disabled=True)
-    elif result.get("status") == "completed":
-        st.success("Done.")
+            st.markdown(f"**{preview.get('title', 'Draft')}**")
+            if preview.get("hook"):
+                st.markdown(f"_{preview['hook']}_")
+            st.text_area("Full draft", preview["body"], height=220, disabled=True, key="content_preview")
+            if preview.get("hashtags"):
+                st.caption("Tags: " + " ".join(preview["hashtags"]))
+    elif result.get("status") == "failed":
+        st.error(result.get("error", "Agent failed"))
     else:
-        st.error(result.get("error", "Unknown error"))
+        st.info(result.get("status", "Done"))
 
 st.markdown("---")
-st.subheader("Content Ideas")
-st.markdown("""
-**LinkedIn (high engagement for RE pros):**
-- "What the Fed's rate decision means for your listings this quarter"
-- "5 signs a buyer is serious vs. window shopping"
-- "How top agents are using AI to close 30% faster"
+st.subheader("Content Angles for RE SaaS")
 
-**Twitter/X:**
-- Real-time market data threads
-- Quick tips in 3-tweet format
+col_a, col_b, col_c = st.columns(3)
+with col_a:
+    st.markdown("**LinkedIn**")
+    st.markdown("""
+- Fed rate decision impact on listings
+- 5 signs a buyer is serious vs browsing
+- How top agents use AI to close faster
+- Why your CRM is costing you listings
+- What separates $1M producers from the rest
+""")
+with col_b:
+    st.markdown("**Twitter / X**")
+    st.markdown("""
+- Market data threads (weekly)
+- 3-tweet agent tip formats
 - Industry news commentary
-
-**Instagram:**
-- Behind-the-scenes of property tech
+- Hot takes on proptech trends
+- Live market update threads
+""")
+with col_c:
+    st.markdown("**Instagram**")
+    st.markdown("""
 - Before/after workflow comparisons
-- Client success stories (visual)
+- Client success story visuals
+- Property tech behind-the-scenes
+- Day in the life of a power agent
+- Market stat infographics
 """)
 
-st.caption("Schedule: Content Agent runs Mon/Wed/Fri at 8:00 AM automatically. Or trigger manually above.")
+st.markdown("---")
+st.caption("Schedule: Content agent runs Mon / Wed / Fri at 08:00 automatically.")

@@ -1,21 +1,27 @@
-import json
 from agents.base import BaseAgent, AgentResult, Tool
 from tools.web_research import search_re_news
-
+from utils.json_parser import extract_json
+from utils.config_loader import get_model, get_max_tokens
 
 SYSTEM_PROMPT = """
 You are the Marketing strategist for a real estate SaaS startup.
-Analyze performance data and recommend campaigns. Be ROI-focused and evidence-based.
+Analyze performance context and recommend campaigns. Be ROI-focused and evidence-based.
+Ground recommendations in current RE industry trends — use get_industry_trends first.
 
-Return JSON:
+Return raw JSON only (no markdown fences):
 {
-  "weekly_summary": "...",
-  "top_performing": ["..."],
-  "underperforming": ["..."],
+  "weekly_summary": "2-3 sentence summary of the week",
+  "top_performing": ["content or channel that worked"],
+  "underperforming": ["what to cut or rethink"],
   "recommendations": [
-    {"campaign": "...", "channel": "...", "rationale": "...", "estimated_impact": "..."}
+    {
+      "campaign": "campaign name",
+      "channel": "LinkedIn|Email|Twitter|Instagram",
+      "rationale": "why this will work for RE pros",
+      "estimated_impact": "qualitative or quantitative estimate"
+    }
   ],
-  "next_week_focus": "..."
+  "next_week_focus": "one clear priority"
 }
 """
 
@@ -25,8 +31,8 @@ class MarketingAgent(BaseAgent):
         super().__init__(
             name="marketing",
             system_prompt=SYSTEM_PROMPT,
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
+            model=get_model("marketing"),
+            max_tokens=get_max_tokens("marketing"),
         )
 
     def _register_tools(self):
@@ -45,15 +51,17 @@ class MarketingAgent(BaseAgent):
 
     def run(self, task_payload: dict) -> AgentResult:
         try:
-            context = task_payload.get("context", "Generate weekly marketing strategy")
-            raw = self._run_loop(f"{context}\nReturn JSON only.")
+            context = task_payload.get("context", "Generate this week's marketing strategy for a real estate SaaS")
+            prompt = (
+                f"{context}\n"
+                "Use get_industry_trends to ground recommendations in current market conditions.\n"
+                "Return raw JSON only."
+            )
+            raw = self._run_loop(prompt)
+            strategy = extract_json(raw, expect="object")
 
-            try:
-                start = raw.find("{")
-                end = raw.rfind("}") + 1
-                strategy = json.loads(raw[start:end]) if start >= 0 else {"raw": raw}
-            except Exception:
-                strategy = {"raw": raw}
+            if not strategy.get("recommendations"):
+                strategy = {"weekly_summary": raw, "recommendations": [], "next_week_focus": ""}
 
             return AgentResult(
                 agent="marketing",
@@ -62,6 +70,8 @@ class MarketingAgent(BaseAgent):
                 requires_approval=True,
                 preview={
                     "summary": strategy.get("weekly_summary", ""),
+                    "top_performing": strategy.get("top_performing", []),
+                    "underperforming": strategy.get("underperforming", []),
                     "recommendations": strategy.get("recommendations", []),
                     "next_week_focus": strategy.get("next_week_focus", ""),
                     "action": "Log strategy to Google Sheets",
@@ -77,4 +87,8 @@ class MarketingAgent(BaseAgent):
             )
 
     def execute_approved(self, action_type: str, preview: dict) -> dict:
-        return {"logged": True, "recommendations": len(preview.get("recommendations", []))}
+        return {
+            "logged": True,
+            "recommendation_count": len(preview.get("recommendations", [])),
+            "focus": preview.get("next_week_focus", ""),
+        }

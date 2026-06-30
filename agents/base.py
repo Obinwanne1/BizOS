@@ -1,11 +1,15 @@
 import json
 import os
+import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Callable
 import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+
+MAX_TOOL_ITERATIONS = 10
 
 
 @dataclass
@@ -32,11 +36,15 @@ class Tool:
 
 class BaseAgent:
     def __init__(self, name: str, system_prompt: str, model: str, max_tokens: int = 4096):
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise EnvironmentError("ANTHROPIC_API_KEY not set in environment")
+
         self.name = name
         self.system_prompt = system_prompt
         self.model = model
         self.max_tokens = max_tokens
-        self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.client = anthropic.Anthropic(api_key=api_key)
         self._tools: list[Tool] = []
         self._register_tools()
 
@@ -59,8 +67,10 @@ class BaseAgent:
     def _run_loop(self, user_message: str) -> str:
         messages = [{"role": "user", "content": user_message}]
         tool_map = self._tool_map()
+        iterations = 0
 
-        while True:
+        while iterations < MAX_TOOL_ITERATIONS:
+            iterations += 1
             kwargs = {
                 "model": self.model,
                 "max_tokens": self.max_tokens,
@@ -70,9 +80,20 @@ class BaseAgent:
             if self._tools:
                 kwargs["tools"] = self._tool_defs()
 
-            response = self.client.messages.create(**kwargs)
+            try:
+                response = self.client.messages.create(**kwargs)
+            except anthropic.APIStatusError as e:
+                logger.error("[%s] Anthropic API error: %s", self.name, e)
+                raise
 
             if response.stop_reason == "end_turn":
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        return block.text
+                return ""
+
+            if response.stop_reason == "max_tokens":
+                logger.warning("[%s] Hit max_tokens limit (%d). Returning partial output.", self.name, self.max_tokens)
                 for block in response.content:
                     if hasattr(block, "text"):
                         return block.text
@@ -88,6 +109,7 @@ class BaseAgent:
                             try:
                                 result = handler(**block.input)
                             except Exception as e:
+                                logger.error("[%s] Tool %s failed: %s", self.name, block.name, e)
                                 result = {"error": str(e)}
                         else:
                             result = {"error": f"Unknown tool: {block.name}"}
@@ -101,7 +123,11 @@ class BaseAgent:
                 messages.append({"role": "user", "content": tool_results})
                 continue
 
+            logger.warning("[%s] Unexpected stop_reason: %s", self.name, response.stop_reason)
             break
+
+        if iterations >= MAX_TOOL_ITERATIONS:
+            logger.error("[%s] Hit MAX_TOOL_ITERATIONS (%d). Aborting loop.", self.name, MAX_TOOL_ITERATIONS)
 
         return ""
 

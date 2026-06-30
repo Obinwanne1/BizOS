@@ -1,16 +1,32 @@
-import json
 import os
 import requests
 from agents.base import BaseAgent, AgentResult, Tool
 from tools.airtable_crm import add_leads_to_crm
-
+from utils.json_parser import extract_json
+from utils.config_loader import get_model, get_max_tokens
 
 SYSTEM_PROMPT = """
 You are the Lead Generation specialist for a real estate SaaS startup.
-Your ICP: real estate agents, brokers, team leads, and property managers in the US.
-You find prospects, score them by fit (1-10), and return a structured lead list.
-Score criteria: company size, tech adoption signals, active social presence, pain points matching our product.
-Always return a JSON array of leads with: name, title, company, email_guess, linkedin_url, score, reason.
+ICP: real estate agents, brokers, team leads, and property managers in the US.
+
+Steps:
+1. Call search_apollo with relevant job titles.
+2. For each lead, call enrich_lead to find email.
+3. Score each lead 1-10 based on: tech adoption signals, active social presence, company size, ICP match.
+4. Return a JSON array. Each element:
+{
+  "name": "...",
+  "title": "...",
+  "company": "...",
+  "email": "...",
+  "linkedin_url": "...",
+  "city": "...",
+  "state": "...",
+  "score": 7,
+  "reason": "why this lead scores well"
+}
+
+Return raw JSON array only. No markdown, no prose.
 """
 
 
@@ -19,8 +35,8 @@ class LeadGenAgent(BaseAgent):
         super().__init__(
             name="lead_gen",
             system_prompt=SYSTEM_PROMPT,
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
+            model=get_model("lead_gen"),
+            max_tokens=get_max_tokens("lead_gen"),
         )
 
     def _register_tools(self):
@@ -34,7 +50,7 @@ class LeadGenAgent(BaseAgent):
                         "job_titles": {"type": "array", "items": {"type": "string"}},
                         "industry": {"type": "string"},
                         "location": {"type": "string"},
-                        "limit": {"type": "integer", "default": 20},
+                        "limit": {"type": "integer"},
                     },
                     "required": ["job_titles"],
                 },
@@ -42,7 +58,7 @@ class LeadGenAgent(BaseAgent):
             ),
             Tool(
                 name="enrich_lead",
-                description="Enrich a lead with additional data from Hunter.io",
+                description="Enrich a lead with email via Hunter.io",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -60,24 +76,21 @@ class LeadGenAgent(BaseAgent):
                        location: str = "United States", limit: int = 20) -> dict:
         api_key = os.getenv("APOLLO_API_KEY")
         if not api_key:
-            return {"error": "APOLLO_API_KEY not set", "mock": True, "leads": self._mock_leads()}
+            return {"mock": True, "leads": self._mock_leads()}
 
         try:
             resp = requests.post(
                 "https://api.apollo.io/v1/mixed_people/search",
-                headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
+                headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
                 json={
-                    "api_key": api_key,
                     "person_titles": job_titles,
-                    "organization_industry_tag_ids": [],
                     "person_locations": [location],
-                    "per_page": limit,
+                    "per_page": min(limit, 25),
                 },
                 timeout=15,
             )
             if resp.status_code == 200:
-                data = resp.json()
-                people = data.get("people", [])
+                people = resp.json().get("people", [])
                 return {
                     "leads": [
                         {
@@ -92,14 +105,14 @@ class LeadGenAgent(BaseAgent):
                         for p in people
                     ]
                 }
-            return {"error": f"Apollo returned {resp.status_code}", "mock": True, "leads": self._mock_leads()}
+            return {"error": f"Apollo {resp.status_code}", "mock": True, "leads": self._mock_leads()}
         except Exception as e:
             return {"error": str(e), "mock": True, "leads": self._mock_leads()}
 
     def _enrich_lead(self, domain: str, first_name: str = "", last_name: str = "") -> dict:
         api_key = os.getenv("HUNTER_IO_KEY")
         if not api_key:
-            return {"email": f"info@{domain}", "confidence": 0, "mock": True}
+            return {"email": "", "confidence": 0, "mock": True}
 
         try:
             params = {"domain": domain, "api_key": api_key}
@@ -117,24 +130,40 @@ class LeadGenAgent(BaseAgent):
 
     def _mock_leads(self) -> list:
         return [
-            {"name": "Sarah Johnson", "title": "Real Estate Agent", "company": "Keller Williams Realty",
-             "email": "sarah@kw.com", "linkedin_url": "https://linkedin.com/in/sarahjohnson-re", "city": "Austin", "state": "TX"},
-            {"name": "Marcus Rivera", "title": "Broker/Owner", "company": "Rivera Properties",
-             "email": "marcus@riveraprop.com", "linkedin_url": "https://linkedin.com/in/marcusrivera", "city": "Miami", "state": "FL"},
-            {"name": "Jennifer Lee", "title": "Team Lead", "company": "Coldwell Banker",
-             "email": "jlee@cbhomes.com", "linkedin_url": "https://linkedin.com/in/jenniferlee-re", "city": "Denver", "state": "CO"},
+            {
+                "name": "Sarah Johnson", "title": "Real Estate Agent",
+                "company": "Keller Williams Realty", "email": "sarah.j@kw.com",
+                "linkedin_url": "https://linkedin.com/in/sarahjohnson-re",
+                "city": "Austin", "state": "TX", "score": 8,
+                "reason": "Active LinkedIn presence, team of 5, uses CRM tools",
+            },
+            {
+                "name": "Marcus Rivera", "title": "Broker/Owner",
+                "company": "Rivera Properties", "email": "marcus@riveraprop.com",
+                "linkedin_url": "https://linkedin.com/in/marcusrivera",
+                "city": "Miami", "state": "FL", "score": 9,
+                "reason": "Broker/owner decision-maker, 12-agent team, high transaction volume",
+            },
+            {
+                "name": "Jennifer Lee", "title": "Team Lead",
+                "company": "Coldwell Banker", "email": "jlee@cbhomes.com",
+                "linkedin_url": "https://linkedin.com/in/jenniferlee-re",
+                "city": "Denver", "state": "CO", "score": 7,
+                "reason": "Team lead managing 8 agents, posts tech content on LinkedIn",
+            },
         ]
 
     def run(self, task_payload: dict) -> AgentResult:
         try:
-            query = task_payload.get("query", "Find 10 qualified real estate professionals matching our ICP")
-            raw_output = self._run_loop(query)
+            query = task_payload.get(
+                "query",
+                "Find 10 qualified real estate professionals matching our ICP. "
+                "Use search_apollo then enrich_lead for emails. Return JSON array.",
+            )
+            raw = self._run_loop(query)
+            leads = extract_json(raw, expect="array")
 
-            try:
-                start = raw_output.find("[")
-                end = raw_output.rfind("]") + 1
-                leads = json.loads(raw_output[start:end]) if start >= 0 else []
-            except Exception:
+            if not leads:
                 leads = self._mock_leads()
 
             preview = {
@@ -146,7 +175,7 @@ class LeadGenAgent(BaseAgent):
             return AgentResult(
                 agent="lead_gen",
                 action_type="add_leads_to_crm",
-                output={"leads": leads, "raw": raw_output},
+                output={"leads": leads},
                 requires_approval=True,
                 preview=preview,
             )

@@ -1,20 +1,20 @@
-import yaml
+import json
+import logging
 from pathlib import Path
 from orchestrator.state import (
     create_task, update_task_status, queue_approval,
-    log_agent_action, get_pending_approvals
+    log_agent_action, get_approval_by_id,
 )
 from agents.base import AgentResult
+from utils.validators import is_valid_agent, validate_approval_id
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "agents.yaml"
-
-
-def load_agent_config() -> dict:
-    with open(CONFIG_PATH, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+logger = logging.getLogger(__name__)
 
 
 def get_agent(agent_name: str):
+    if not is_valid_agent(agent_name):
+        raise ValueError(f"Unknown agent: {agent_name!r}")
+
     from agents.lead_gen import LeadGenAgent
     from agents.content import ContentAgent
     from agents.sales import SalesAgent
@@ -30,13 +30,13 @@ def get_agent(agent_name: str):
         "product": ProductAgent,
         "operations": OperationsAgent,
     }
-    cls = registry.get(agent_name)
-    if not cls:
-        raise ValueError(f"Unknown agent: {agent_name}")
-    return cls()
+    return registry[agent_name]()
 
 
 def dispatch(agent_name: str, task_type: str, payload: dict) -> dict:
+    if not is_valid_agent(agent_name):
+        return {"status": "failed", "error": f"Unknown agent: {agent_name!r}"}
+
     task_id = create_task(agent_name, task_type, payload)
     update_task_status(task_id, "running")
 
@@ -52,38 +52,49 @@ def dispatch(agent_name: str, task_type: str, payload: dict) -> dict:
         if result.requires_approval:
             approval_id = queue_approval(task_id, agent_name, result.action_type, result.preview)
             update_task_status(task_id, "awaiting_approval")
-            log_agent_action(agent_name, task_type, {"approval_id": approval_id, "output": result.output})
-            return {"status": "awaiting_approval", "approval_id": approval_id, "preview": result.preview}
+            log_agent_action(agent_name, task_type, {"approval_id": approval_id})
+            return {
+                "status": "awaiting_approval",
+                "approval_id": approval_id,
+                "preview": result.preview,
+            }
 
         update_task_status(task_id, "completed")
         log_agent_action(agent_name, task_type, result.output)
         return {"status": "completed", "output": result.output}
 
+    except EnvironmentError as e:
+        # Missing API key — surface clearly
+        update_task_status(task_id, "failed")
+        log_agent_action(agent_name, task_type, {"error": str(e)})
+        return {"status": "failed", "error": str(e)}
     except Exception as e:
+        logger.exception("[router] dispatch failed for %s", agent_name)
         update_task_status(task_id, "failed")
         log_agent_action(agent_name, task_type, {"error": str(e)})
         return {"status": "failed", "error": str(e)}
 
 
 def execute_approved(approval_id: str) -> dict:
-    from orchestrator.state import get_db
-    import json
+    ok, err = validate_approval_id(approval_id)
+    if not ok:
+        return {"error": err}
 
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM pending_approvals WHERE id=?", (approval_id,)
-        ).fetchone()
-
-    if not row:
+    approval = get_approval_by_id(approval_id)
+    if not approval:
         return {"error": "Approval not found"}
 
-    approval = dict(row)
-    output = json.loads(approval["preview_json"])
+    # Guard: only execute if still pending (resolve_approval enforces this too, but belt-and-suspenders)
+    if approval["status"] != "pending":
+        return {"error": f"Approval already {approval['status']} — cannot re-execute"}
 
-    agent = get_agent(approval["agent"])
-    if hasattr(agent, "execute_approved"):
-        result = agent.execute_approved(approval["action_type"], output)
+    preview = json.loads(approval["preview_json"])
+
+    try:
+        agent = get_agent(approval["agent"])
+        result = agent.execute_approved(approval["action_type"], preview)
         log_agent_action(approval["agent"], f"execute:{approval['action_type']}", result, "ceo")
         return result
-
-    return {"status": "executed", "note": "Agent has no execute_approved — action was approval-only"}
+    except Exception as e:
+        logger.exception("[router] execute_approved failed for approval %s", approval_id)
+        return {"error": str(e)}
