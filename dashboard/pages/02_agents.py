@@ -16,6 +16,13 @@ apply_styles()
 st.title("Agent Control Center")
 st.caption("6 AI agents running your real estate SaaS business. All approval-gated before execution.")
 
+# Scheduler status
+sched_log = Path(__file__).resolve().parents[2] / "data" / "scheduler.log"
+if sched_log.exists():
+    st.success("Scheduler running — agents fire automatically on schedule.")
+else:
+    st.info("Scheduler not running. Launch `python scheduler.py` to enable automatic agent runs.")
+
 AGENTS = [
     {
         "id": "lead_gen",

@@ -14,5 +14,12 @@ if (Test-Path $envFile) {
     Write-Host "WARNING: .env not found — agents need ANTHROPIC_API_KEY" -ForegroundColor Yellow
 }
 
-Write-Host "Starting BizOS at http://localhost:8501" -ForegroundColor Green
+# Start scheduler in background
+Write-Host "Starting BizOS Scheduler..." -ForegroundColor Cyan
+Start-Process -FilePath "python" -ArgumentList "scheduler.py" -WorkingDirectory $PSScriptRoot -WindowStyle Minimized
+
+Start-Sleep -Seconds 1
+
+# Start dashboard
+Write-Host "Starting BizOS Dashboard at http://localhost:8501" -ForegroundColor Green
 python -m streamlit run dashboard/app.py

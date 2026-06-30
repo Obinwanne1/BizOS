@@ -94,7 +94,23 @@ def execute_approved(approval_id: str) -> dict:
         agent = get_agent(approval["agent"])
         result = agent.execute_approved(approval["action_type"], preview)
         log_agent_action(approval["agent"], f"execute:{approval['action_type']}", result, "ceo")
+        _trigger_handoffs(approval["agent"], approval["action_type"], preview, result)
         return result
     except Exception as e:
         logger.exception("[router] execute_approved failed for approval %s", approval_id)
         return {"error": str(e)}
+
+
+def _trigger_handoffs(agent: str, action_type: str, preview: dict, result: dict):
+    """Fire downstream agents after certain approvals execute."""
+    try:
+        if agent == "lead_gen" and action_type == "add_leads_to_crm":
+            leads = preview.get("leads", [])
+            if not leads:
+                return
+            logger.info("[handoff] lead_gen → sales: %d new lead(s) in CRM", len(leads))
+            lead = leads[0]
+            dispatch("sales", "handoff_from_lead_gen", {"lead": lead})
+
+    except Exception as e:
+        logger.warning("[handoff] failed: %s", e)
