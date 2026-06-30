@@ -1,0 +1,43 @@
+app:
+  name: BizOS
+  tagline: "Run your business like a CEO, not an assembly line."
+  brand_primary: "#407E3C"
+  brand_secondary: "#FFFFFF"
+  brand_accent: "#5a9e56"
+
+crm:
+  lead_stages:
+    - New
+    - Researched
+    - Contacted
+    - Replied
+    - Demo Scheduled
+    - Proposal Sent
+    - Won
+    - Lost
+
+  deal_stages:
+    - Prospect
+    - Qualified
+    - Demo
+    - Negotiation
+    - Closed Won
+    - Closed Lost
+
+content:
+  platforms:
+    - LinkedIn
+    - Twitter
+    - Instagram
+
+  types:
+    - Market Update
+    - Agent Tip
+    - Product Insight
+    - Industry News
+    - Case Study
+
+limits:
+  leads_per_run: 20
+  content_pieces_per_run: 3
+  max_approval_age_hours: 72
