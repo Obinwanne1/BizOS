@@ -2,22 +2,16 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 from orchestrator.router import dispatch
-from orchestrator.state import get_agent_logs
+from orchestrator.state import get_last_run_per_agent
+from dashboard.styles import apply_styles
 
 st.set_page_config(page_title="Agents — BizOS", layout="wide")
-st.markdown("""
-<style>
-[data-testid="stSidebar"] { background: #407E3C !important; }
-[data-testid="stSidebar"] * { color: white !important; }
-h1, h2, h3 { color: #407E3C !important; }
-.stButton > button {
-    background: #407E3C !important; color: white !important;
-    border: none !important; border-radius: 6px !important; font-weight: 600 !important;
-}
-.stButton > button:hover { background: #5a9e56 !important; }
-</style>""", unsafe_allow_html=True)
+apply_styles()
 
 st.title("Agent Control Center")
 st.caption("6 AI agents running your real estate SaaS business. All approval-gated before execution.")
@@ -79,6 +73,9 @@ AGENTS = [
     },
 ]
 
+# Single DB query for all agents instead of N+1
+last_runs = get_last_run_per_agent()
+
 for agent in AGENTS:
     col_label, col_info, col_meta, col_run = st.columns([1, 4, 3, 1])
 
@@ -96,8 +93,7 @@ for agent in AGENTS:
         st.caption(agent["desc"])
 
     with col_meta:
-        logs = get_agent_logs(agent["id"], limit=1)
-        last_run = logs[0]["timestamp"][:16] if logs else "Never"
+        last_run = last_runs.get(agent["id"], "Never")
         st.caption(f"Schedule: {agent['schedule']}")
         st.caption(f"Approval: {agent['approval']}")
         st.caption(f"Last run: {last_run}")

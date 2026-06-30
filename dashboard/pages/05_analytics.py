@@ -2,19 +2,18 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from orchestrator.state import get_agent_logs, get_stats
 from tools.airtable_crm import get_crm_stats
+from dashboard.styles import apply_styles
 
 st.set_page_config(page_title="Analytics — BizOS", layout="wide")
-st.markdown("""
-<style>
-[data-testid="stSidebar"] { background: #407E3C !important; }
-[data-testid="stSidebar"] * { color: white !important; }
-h1, h2, h3 { color: #407E3C !important; }
-</style>""", unsafe_allow_html=True)
+apply_styles()
 
 st.title("Analytics")
 

@@ -170,6 +170,15 @@ def log_agent_action(agent: str, action: str, result: dict, approved_by: str = "
         )
 
 
+def get_last_run_per_agent() -> dict[str, str]:
+    """Return {agent_name: last_timestamp} in one query."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT agent, MAX(timestamp) as last_run FROM agent_logs GROUP BY agent"
+        ).fetchall()
+    return {r["agent"]: r["last_run"][:16] for r in rows}
+
+
 def get_agent_logs(agent: str = None, limit: int = 50) -> list[dict]:
     limit = min(limit, 500)
     with get_db() as conn:

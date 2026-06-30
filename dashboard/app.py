@@ -4,7 +4,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import json
 import streamlit as st
+from dotenv import load_dotenv
+load_dotenv()
+
 from orchestrator.state import init_db, get_stats, get_pending_approvals
+from dashboard.styles import apply_styles
 
 st.set_page_config(
     page_title="BizOS",
@@ -13,35 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.markdown("""
-<style>
-[data-testid="stSidebar"] { background: #407E3C !important; }
-[data-testid="stSidebar"] * { color: #ffffff !important; }
-[data-testid="stSidebar"] a { color: #ffffff !important; }
-h1, h2, h3 { color: #407E3C !important; }
-.stButton > button {
-    background: #407E3C !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 6px !important;
-    font-weight: 600 !important;
-}
-.stButton > button:hover { background: #5a9e56 !important; }
-.alert-badge {
-    display: inline-block;
-    background: #c0392b;
-    color: white;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 10px;
-    letter-spacing: 0.5px;
-}
-.status-dot-green { color: #407E3C; font-size: 10px; }
-.status-dot-grey  { color: #aaa;     font-size: 10px; }
-</style>
-""", unsafe_allow_html=True)
-
+apply_styles()
 init_db()
 
 stats = get_stats()
@@ -99,8 +75,15 @@ if pending_items:
                 )
                 if st.button("Approve", key=f"approve_{item['id']}"):
                     from orchestrator.approval import approve
-                    approve(item["id"], feedback)
-                    st.success("Approved and executed.")
+                    try:
+                        result = approve(item["id"], feedback)
+                        exec_result = result.get("execution", {})
+                        if exec_result.get("error"):
+                            st.warning(f"Approved but execution failed: {exec_result['error']}")
+                        else:
+                            st.success("Approved and executed.")
+                    except ValueError as e:
+                        st.error(str(e))
                     st.rerun()
                 if st.button("Reject", key=f"reject_{item['id']}"):
                     from orchestrator.approval import reject

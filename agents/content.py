@@ -66,13 +66,17 @@ class ContentAgent(BaseAgent):
             if not content_obj.get("body"):
                 content_obj = {"body": raw, "platform": platform, "title": "Content Draft"}
 
+            hashtags = content_obj.get("hashtags") or []
+            if isinstance(hashtags, str):
+                hashtags = [h.strip() for h in hashtags.replace(",", " ").split() if h.strip()]
+
             preview = {
                 "title": content_obj.get("title", "Content Draft"),
                 "platform": content_obj.get("platform", platform),
                 "content_type": content_obj.get("content_type", content_type),
                 "body": content_obj.get("body", ""),
                 "hook": content_obj.get("hook", ""),
-                "hashtags": content_obj.get("hashtags", []),
+                "hashtags": hashtags,
                 "suggested_publish_time": content_obj.get("suggested_publish_time", ""),
                 "action": "Schedule to social media via Buffer",
             }

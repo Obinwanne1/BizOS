@@ -2,21 +2,15 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 from orchestrator.router import dispatch
+from dashboard.styles import apply_styles
 
 st.set_page_config(page_title="Content — BizOS", layout="wide")
-st.markdown("""
-<style>
-[data-testid="stSidebar"] { background: #407E3C !important; }
-[data-testid="stSidebar"] * { color: white !important; }
-h1, h2, h3 { color: #407E3C !important; }
-.stButton > button {
-    background: #407E3C !important; color: white !important;
-    border: none !important; border-radius: 6px !important; font-weight: 600 !important;
-}
-.stButton > button:hover { background: #5a9e56 !important; }
-</style>""", unsafe_allow_html=True)
+apply_styles()
 
 st.title("Content Engine")
 st.caption("Generate authoritative RE industry content. Agent researches current news before writing.")
