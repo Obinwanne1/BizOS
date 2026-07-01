@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS agent_memory (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_approvals_status     ON pending_approvals(status);
+CREATE INDEX IF NOT EXISTS idx_logs_agent_time      ON agent_logs(agent, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_key     ON agent_memory(agent, key);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_type    ON agent_memory(agent, memory_type, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_start  ON workflow_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_status         ON tasks(status);
 """
 
 

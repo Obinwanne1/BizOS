@@ -14,6 +14,11 @@ st.set_page_config(page_title="Agents — BizOS", layout="wide")
 apply_styles()
 init_db()
 
+
+@st.cache_data(ttl=60)
+def _last_runs():
+    return get_last_run_per_agent()
+
 st.title("Agent Control Center")
 st.caption("6 AI agents running your real estate SaaS business. All approval-gated before execution.")
 
@@ -80,7 +85,7 @@ AGENTS = [
     },
 ]
 
-last_runs = get_last_run_per_agent()
+last_runs = _last_runs()
 
 for agent_cfg in AGENTS:
     col_label, col_info, col_meta, col_run = st.columns([1, 4, 3, 1])
@@ -114,31 +119,44 @@ for agent_cfg in AGENTS:
             status_placeholder = st.empty()
             chunks: list[str] = []
 
-            def make_on_chunk(placeholder, buf):
+            def make_on_chunk(placeholder, buf, label):
                 def on_chunk(delta: str):
                     buf.append(delta)
+                    text = "".join(buf)
                     placeholder.markdown(
-                        "<div style='font-size:13px;font-family:monospace;"
-                        "background:#f8f8f8;padding:10px;border-radius:6px;"
-                        "border-left:3px solid #407E3C;max-height:200px;overflow-y:auto'>"
-                        + "".join(buf).replace("\n", "<br>")
-                        + "▌</div>",
+                        f"<div style='background:#f4f8f4;border:1px solid #c8dfc7;"
+                        f"border-left:4px solid #407E3C;border-radius:8px;"
+                        f"padding:14px 16px;font-size:13px;line-height:1.7;"
+                        f"font-family:\"Segoe UI\",sans-serif;color:#1a2e1a;"
+                        f"max-height:280px;overflow-y:auto;white-space:pre-wrap;'>"
+                        f"<div style='font-size:10px;font-weight:700;letter-spacing:1px;"
+                        f"color:#407E3C;margin-bottom:8px;text-transform:uppercase'>"
+                        f"{label} — generating</div>"
+                        f"{text}"
+                        f"<span style='display:inline-block;width:2px;height:13px;"
+                        f"background:#407E3C;margin-left:2px;vertical-align:middle'></span>"
+                        f"</div>",
                         unsafe_allow_html=True,
                     )
                 return on_chunk
 
             try:
                 agent_instance = get_agent(agent_id)
-                agent_instance._on_chunk = make_on_chunk(stream_placeholder, chunks)
+                agent_instance._on_chunk = make_on_chunk(stream_placeholder, chunks, agent_cfg["name"])
                 result = dispatch_with_agent(agent_instance, agent_id, "manual_trigger", payload)
             finally:
                 # Clear streaming cursor, show final text
                 if chunks:
                     stream_placeholder.markdown(
-                        "<div style='font-size:13px;font-family:monospace;"
-                        "background:#f8f8f8;padding:10px;border-radius:6px;"
-                        "border-left:3px solid #407E3C;max-height:200px;overflow-y:auto'>"
-                        + "".join(chunks).replace("\n", "<br>")
+                        f"<div style='background:#f4f8f4;border:1px solid #c8dfc7;"
+                        f"border-left:4px solid #407E3C;border-radius:8px;"
+                        f"padding:14px 16px;font-size:13px;line-height:1.7;"
+                        f"font-family:\"Segoe UI\",sans-serif;color:#1a2e1a;"
+                        f"max-height:280px;overflow-y:auto;white-space:pre-wrap;'>"
+                        f"<div style='font-size:10px;font-weight:700;letter-spacing:1px;"
+                        f"color:#5a9e56;margin-bottom:8px;text-transform:uppercase'>"
+                        f"{agent_cfg['name']} — complete</div>"
+                        + "".join(chunks)
                         + "</div>",
                         unsafe_allow_html=True,
                     )
@@ -152,6 +170,7 @@ for agent_cfg in AGENTS:
             else:
                 status_placeholder.error(result.get("error", "Failed"))
 
+            _last_runs.clear()
             st.rerun()
 
     st.markdown("---")

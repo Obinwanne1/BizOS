@@ -15,10 +15,26 @@ from dashboard.styles import apply_styles
 st.set_page_config(page_title="Analytics — BizOS", layout="wide")
 apply_styles()
 
+
+@st.cache_data(ttl=60)
+def _logs(limit=200):
+    return get_agent_logs(limit=limit)
+
+
+@st.cache_data(ttl=30)
+def _stats():
+    return get_stats()
+
+
+@st.cache_data(ttl=300)
+def _crm():
+    return get_crm_stats()
+
+
 st.title("Analytics")
 
-stats = get_stats()
-crm = get_crm_stats()
+stats = _stats()
+crm = _crm()
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
@@ -32,7 +48,7 @@ with col4:
 
 st.markdown("---")
 
-logs = get_agent_logs(limit=200)
+logs = _logs(200)
 if not logs:
     st.info("No agent activity yet. Trigger agents from the Agents page.")
     st.stop()

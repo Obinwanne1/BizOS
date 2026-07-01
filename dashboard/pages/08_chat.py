@@ -33,44 +33,64 @@ with st.sidebar:
 
     VOICE_HTML = """
     <style>
-      body { margin: 0; font-family: sans-serif; }
-      #mic { background: #407E3C; color: white; border: none; border-radius: 8px;
-             padding: 10px 18px; font-size: 14px; cursor: pointer; width: 100%; }
-      #mic:active { background: #cc0000; }
-      #status { font-size: 12px; color: #555; margin-top: 8px; }
-      #transcript { font-size: 13px; font-weight: bold; color: #222;
-                    margin-top: 6px; word-break: break-word; min-height: 24px; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: transparent; }
+      #mic {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        background: #ffffff18; color: white; border: 1.5px solid #ffffff44;
+        border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600;
+        cursor: pointer; width: 100%; transition: background 0.15s, border-color 0.15s;
+        letter-spacing: 0.3px;
+      }
+      #mic:hover { background: #ffffff28; border-color: #ffffff88; }
+      #mic.listening { background: #c0392b22; border-color: #c0392b; color: #ff9999; }
+      #mic svg { flex-shrink: 0; }
+      #status { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 7px; padding-left: 2px; }
+      #transcript {
+        font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.9);
+        margin-top: 6px; padding: 7px 10px; border-radius: 6px;
+        background: rgba(255,255,255,0.1); min-height: 0; word-break: break-word;
+        display: none; line-height: 1.5;
+      }
     </style>
-    <button id="mic" onclick="startListen()">[MIC] Click to speak</button>
-    <div id="status">Ready.</div>
+    <button id="mic" onclick="startListen()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm6.364 7.636a1 1 0 0 1 1 1A7.364 7.364 0 0 1 13 18.9V21h2a1 1 0 0 1 0 2H9a1 1 0 0 1 0-2h2v-2.1A7.364 7.364 0 0 1 4.636 11.636a1 1 0 0 1 2 0 5.364 5.364 0 0 0 10.728 0 1 1 0 0 1 1-1z"/>
+      </svg>
+      Click to speak
+    </button>
+    <div id="status">Ready — Chrome / Edge only</div>
     <div id="transcript"></div>
     <script>
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const btn = document.getElementById('mic');
+    const status = document.getElementById('status');
+    const transcript = document.getElementById('transcript');
     if (!SpeechRec) {
-      document.getElementById('status').textContent = 'Speech not supported in this browser.';
-      document.getElementById('mic').disabled = true;
+      status.textContent = 'Not supported in this browser.';
+      btn.disabled = true; btn.style.opacity = '0.4';
     }
     function startListen() {
       const rec = new SpeechRec();
-      rec.lang = 'en-US';
-      rec.continuous = false;
-      rec.interimResults = false;
-      document.getElementById('mic').textContent = '[REC] Listening...';
-      document.getElementById('status').textContent = 'Speak now...';
+      rec.lang = 'en-US'; rec.continuous = false; rec.interimResults = true;
+      btn.classList.add('listening');
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg> Listening...';
+      status.textContent = 'Speak now...';
       rec.start();
       rec.onresult = (e) => {
-        const t = e.results[0][0].transcript;
-        document.getElementById('transcript').textContent = '> ' + t;
-        document.getElementById('status').textContent = 'Done. Copy text above to chat.';
-        document.getElementById('mic').textContent = '[MIC] Click to speak';
+        const t = Array.from(e.results).map(r => r[0].transcript).join('');
+        transcript.textContent = t;
+        transcript.style.display = 'block';
+        if (e.results[e.results.length - 1].isFinal) {
+          status.textContent = 'Done — copy transcript to chat above.';
+        }
       };
-      rec.onerror = (e) => {
-        document.getElementById('status').textContent = 'Error: ' + e.error;
-        document.getElementById('mic').textContent = '[MIC] Click to speak';
-      };
-      rec.onend = () => {
-        document.getElementById('mic').textContent = '[MIC] Click to speak';
-      };
+      rec.onerror = (e) => { status.textContent = 'Error: ' + e.error; reset(); };
+      rec.onend = reset;
+    }
+    function reset() {
+      btn.classList.remove('listening');
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm6.364 7.636a1 1 0 0 1 1 1A7.364 7.364 0 0 1 13 18.9V21h2a1 1 0 0 1 0 2H9a1 1 0 0 1 0-2h2v-2.1A7.364 7.364 0 0 1 4.636 11.636a1 1 0 0 1 2 0 5.364 5.364 0 0 0 10.728 0 1 1 0 0 1 1-1z"/></svg> Click to speak';
     }
     </script>
     """
@@ -202,12 +222,18 @@ if user_input:
 
             def _on_chunk(delta: str, _box=stream_box, _buf=chunks):
                 _buf.append(delta)
+                text = "".join(_buf)
                 _box.markdown(
-                    "<div style='font-size:13px;font-family:monospace;"
-                    "background:#f8f8f8;padding:10px;border-radius:6px;"
-                    "border-left:3px solid #407E3C'>"
-                    + "".join(_buf).replace("\n", "<br>")
-                    + "▌</div>",
+                    f"<div style='background:#f4f8f4;border:1px solid #c8dfc7;"
+                    f"border-left:4px solid #407E3C;border-radius:8px;padding:14px 16px;"
+                    f"font-size:13px;line-height:1.7;font-family:\"Segoe UI\",sans-serif;"
+                    f"color:#1a2e1a;max-height:320px;overflow-y:auto;white-space:pre-wrap;'>"
+                    f"<div style='font-size:10px;font-weight:700;letter-spacing:1px;"
+                    f"color:#407E3C;margin-bottom:8px;text-transform:uppercase'>"
+                    f"{agent_name.replace('_',' ').upper()} — generating</div>"
+                    f"{text}<span style='display:inline-block;width:2px;height:14px;"
+                    f"background:#407E3C;margin-left:2px;vertical-align:middle;"
+                    f"animation:none'></span></div>",
                     unsafe_allow_html=True,
                 )
 
@@ -223,11 +249,14 @@ if user_input:
             final_text = "".join(chunks)
             if final_text:
                 stream_box.markdown(
-                    "<div style='font-size:13px;font-family:monospace;"
-                    "background:#f8f8f8;padding:10px;border-radius:6px;"
-                    "border-left:3px solid #407E3C'>"
-                    + final_text.replace("\n", "<br>")
-                    + "</div>",
+                    f"<div style='background:#f4f8f4;border:1px solid #c8dfc7;"
+                    f"border-left:4px solid #407E3C;border-radius:8px;padding:14px 16px;"
+                    f"font-size:13px;line-height:1.7;font-family:\"Segoe UI\",sans-serif;"
+                    f"color:#1a2e1a;max-height:320px;overflow-y:auto;white-space:pre-wrap;'>"
+                    f"<div style='font-size:10px;font-weight:700;letter-spacing:1px;"
+                    f"color:#5a9e56;margin-bottom:8px;text-transform:uppercase'>"
+                    f"{agent_name.replace('_',' ').upper()} — complete</div>"
+                    f"{final_text}</div>",
                     unsafe_allow_html=True,
                 )
             else:

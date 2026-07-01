@@ -11,6 +11,16 @@ load_dotenv()
 from orchestrator.state import init_db, get_stats, get_pending_approvals
 from dashboard.styles import apply_styles
 
+
+@st.cache_data(ttl=20)
+def _cached_stats():
+    return get_stats()
+
+
+@st.cache_data(ttl=20)
+def _cached_pending():
+    return get_pending_approvals()
+
 st.set_page_config(
     page_title="BizOS",
     page_icon=None,
@@ -21,7 +31,7 @@ st.set_page_config(
 apply_styles()
 init_db()
 
-stats = get_stats()
+stats = _cached_stats()
 pending_count = stats["pending_approvals"]
 
 with st.sidebar:
@@ -35,11 +45,10 @@ with st.sidebar:
 
     @st.fragment(run_every=15)
     def _approval_notification():
-        from orchestrator.state import get_stats
-        n = get_stats()["pending_approvals"]
+        n = _cached_stats()["pending_approvals"]
         if n > 0:
             st.markdown(
-                f'<a class="notification-pulse" href="/01_Approvals" target="_self">'
+                f'<a class="notification-pulse" href="/approvals" target="_self">'
                 f'! {n} APPROVAL{"S" if n > 1 else ""} PENDING</a>',
                 unsafe_allow_html=True,
             )
@@ -57,16 +66,16 @@ with st.sidebar:
         <a class="nav-link" href="/" target="_self">Command Center</a>
 
         <div class="nav-section">Operations</div>
-        <a class="nav-link" href="/01_Approvals" target="_self">Approvals</a>
-        <a class="nav-link" href="/02_Agents" target="_self">Agents</a>
-        <a class="nav-link" href="/07_Workflows" target="_self">Workflows</a>
-        <a class="nav-link" href="/08_Chat" target="_self">CEO Chat</a>
+        <a class="nav-link" href="/approvals" target="_self">Approvals</a>
+        <a class="nav-link" href="/agents" target="_self">Agents</a>
+        <a class="nav-link" href="/workflows" target="_self">Workflows</a>
+        <a class="nav-link" href="/chat" target="_self">CEO Chat</a>
 
         <div class="nav-section">Data</div>
-        <a class="nav-link" href="/03_Crm" target="_self">CRM</a>
-        <a class="nav-link" href="/04_Content" target="_self">Content</a>
-        <a class="nav-link" href="/05_Analytics" target="_self">Analytics</a>
-        <a class="nav-link" href="/06_Memory" target="_self">Memory</a>
+        <a class="nav-link" href="/crm" target="_self">CRM</a>
+        <a class="nav-link" href="/content" target="_self">Content</a>
+        <a class="nav-link" href="/analytics" target="_self">Analytics</a>
+        <a class="nav-link" href="/memory" target="_self">Memory</a>
         """,
         unsafe_allow_html=True,
     )
@@ -86,7 +95,7 @@ with col4:
 
 st.markdown("---")
 
-pending_items = get_pending_approvals()
+pending_items = _cached_pending()
 if pending_items:
     st.subheader(f"Pending Approvals  [{len(pending_items)}]")
     st.caption("Agents are waiting for your decision before executing.")

@@ -11,6 +11,20 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
 
+# Module-level singleton — creating a new Anthropic() costs ~870ms (HTTP client init).
+# All agents share one client; it is thread-safe per Anthropic SDK docs.
+_anthropic_client: anthropic.Anthropic | None = None
+
+
+def _get_anthropic_client() -> anthropic.Anthropic:
+    global _anthropic_client
+    if _anthropic_client is None:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise EnvironmentError("ANTHROPIC_API_KEY not set in environment")
+        _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    return _anthropic_client
+
 
 def _memory_read(agent: str, memory_type: str = None, limit: int = 10) -> dict:
     from orchestrator.state import get_memories
@@ -48,15 +62,11 @@ class Tool:
 
 class BaseAgent:
     def __init__(self, name: str, system_prompt: str, model: str, max_tokens: int = 4096):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY not set in environment")
-
         self.name = name
         self.system_prompt = system_prompt
         self.model = model
         self.max_tokens = max_tokens
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = _get_anthropic_client()
         self._tools: list[Tool] = []
         self._on_chunk: Callable[[str], None] | None = None
         self._register_tools()
