@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     type TEXT NOT NULL,
     payload_json TEXT,
     status TEXT DEFAULT 'pending',
+    progress INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -50,6 +51,27 @@ CREATE TABLE IF NOT EXISTS agent_schedules (
     next_run TEXT,
     enabled INTEGER DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id TEXT PRIMARY KEY,
+    workflow_name TEXT NOT NULL,
+    status TEXT DEFAULT 'running',
+    step_results_json TEXT DEFAULT '[]',
+    started_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS agent_memory (
+    id TEXT PRIMARY KEY,
+    agent TEXT NOT NULL,
+    memory_type TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    source TEXT DEFAULT 'system',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -73,6 +95,11 @@ def get_db():
 def init_db():
     with get_db() as conn:
         conn.executescript(SCHEMA)
+        # Migrate: add progress column to tasks if missing (SQLite has no IF NOT EXISTS for ALTER)
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN progress INTEGER DEFAULT 0")
+        except Exception:
+            pass  # column already exists
 
 
 def create_task(agent: str, task_type: str, payload: dict) -> str:
@@ -96,6 +123,17 @@ def update_task_status(task_id: str, status: str):
         conn.execute(
             "UPDATE tasks SET status=?, updated_at=datetime('now') WHERE id=?",
             (status, task_id),
+        )
+
+
+def update_task_progress(task_id: str, progress: int):
+    if not is_valid_uuid(task_id):
+        return
+    progress = max(0, min(100, progress))
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE tasks SET progress=?, updated_at=datetime('now') WHERE id=?",
+            (progress, task_id),
         )
 
 
@@ -192,6 +230,87 @@ def get_agent_logs(agent: str = None, limit: int = 50) -> list[dict]:
                 "SELECT * FROM agent_logs ORDER BY timestamp DESC LIMIT ?", (limit,)
             ).fetchall()
     return [dict(r) for r in rows]
+
+
+def create_workflow_run(workflow_name: str) -> str:
+    run_id = str(uuid.uuid4())
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO workflow_runs (id, workflow_name) VALUES (?, ?)",
+            (run_id, workflow_name),
+        )
+    return run_id
+
+
+def update_workflow_run(run_id: str, status: str, step_results: list):
+    with get_db() as conn:
+        completed_at = "datetime('now')" if status in ("completed", "failed", "partial") else "NULL"
+        conn.execute(
+            f"UPDATE workflow_runs SET status=?, step_results_json=?, completed_at=({'datetime(\"now\")' if status in ('completed','failed','partial') else 'NULL'}) WHERE id=?",
+            (status, json.dumps(step_results), run_id),
+        )
+
+
+def get_workflow_runs(limit: int = 20) -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM workflow_runs ORDER BY started_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_memory(agent: str, memory_type: str, key: str, value: str,
+                confidence: float = 1.0, source: str = "system") -> str:
+    memory_id = str(uuid.uuid4())
+    value_str = value if isinstance(value, str) else json.dumps(value)
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM agent_memory WHERE agent=? AND key=?", (agent, key)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE agent_memory SET value=?, confidence=?, source=?, updated_at=datetime('now') WHERE id=?",
+                (value_str, confidence, source, existing["id"]),
+            )
+            return existing["id"]
+        conn.execute(
+            "INSERT INTO agent_memory (id, agent, memory_type, key, value, confidence, source) VALUES (?,?,?,?,?,?,?)",
+            (memory_id, agent, memory_type, key, value_str, confidence, source),
+        )
+    return memory_id
+
+
+def get_memories(agent: str, memory_type: str = None, limit: int = 20) -> list[dict]:
+    limit = min(limit, 200)
+    with get_db() as conn:
+        if memory_type:
+            rows = conn.execute(
+                "SELECT * FROM agent_memory WHERE agent=? AND memory_type=? ORDER BY updated_at DESC LIMIT ?",
+                (agent, memory_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM agent_memory WHERE agent=? ORDER BY updated_at DESC LIMIT ?",
+                (agent, limit),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_all_memories(limit: int = 200) -> list[dict]:
+    limit = min(limit, 500)
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM agent_memory ORDER BY updated_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_memory(memory_id: str) -> bool:
+    if not is_valid_uuid(memory_id):
+        return False
+    with get_db() as conn:
+        conn.execute("DELETE FROM agent_memory WHERE id=?", (memory_id,))
+    return True
 
 
 def get_stats() -> dict:

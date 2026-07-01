@@ -90,8 +90,14 @@ class ProductAgent(BaseAgent):
             )
 
     def execute_approved(self, action_type: str, preview: dict) -> dict:
+        from tools.google_workspace import upload_to_drive
+        result = upload_to_drive(
+            filename="BizOS_Roadmap_Update.json",
+            data=preview,
+        )
         return {
             "roadmap_updated": True,
             "top_features": preview.get("top_features", []),
             "next_sprint": preview.get("next_sprint", ""),
+            "drive_result": result,
         }

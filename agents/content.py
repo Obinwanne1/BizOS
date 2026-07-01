@@ -3,9 +3,12 @@ from tools.web_research import search_re_news
 from utils.json_parser import extract_json
 from utils.config_loader import get_model, get_max_tokens, get_persona
 
-SYSTEM_PROMPT = get_persona("content") or """
-You are the Content strategist for a real estate SaaS startup targeting RE professionals.
-Create valuable, authoritative content. Voice: professional, insightful, data-backed. Never salesy.
+_PERSONA = get_persona("content") or (
+    "You are the Content strategist for a real estate SaaS startup targeting RE professionals. "
+    "Create valuable, authoritative content. Voice: professional, insightful, data-backed. Never salesy."
+)
+
+SYSTEM_PROMPT = _PERSONA + """
 
 Produce a JSON object with exactly these keys:
 {

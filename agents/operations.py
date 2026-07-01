@@ -3,6 +3,7 @@ from datetime import datetime
 from agents.base import BaseAgent, AgentResult, Tool
 from orchestrator.state import get_pending_approvals, get_agent_logs, get_stats
 from tools.slack_notifier import send_slack_message
+from tools.google_workspace import get_calendar_today
 from utils.config_loader import get_model, get_max_tokens
 
 SYSTEM_PROMPT = """
@@ -41,6 +42,7 @@ class OperationsAgent(BaseAgent):
         stats = get_stats()
         pending = get_pending_approvals()
         logs = get_agent_logs(limit=10)
+        calendar = get_calendar_today()
         return {
             "stats": stats,
             "pending_approvals": [
@@ -51,6 +53,7 @@ class OperationsAgent(BaseAgent):
                 {"agent": l["agent"], "action": l["action"], "time": l["timestamp"][:16]}
                 for l in logs[:5]
             ],
+            "calendar_today": calendar.get("events", []),
             "date": datetime.now().strftime("%A, %B %d %Y"),
         }
 

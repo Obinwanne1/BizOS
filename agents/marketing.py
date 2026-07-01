@@ -87,8 +87,14 @@ class MarketingAgent(BaseAgent):
             )
 
     def execute_approved(self, action_type: str, preview: dict) -> dict:
+        from tools.google_workspace import write_to_sheets
+        result = write_to_sheets(
+            title=f"Marketing Strategy",
+            data=preview,
+        )
         return {
             "logged": True,
             "recommendation_count": len(preview.get("recommendations", [])),
             "focus": preview.get("next_week_focus", ""),
+            "sheets_result": result,
         }

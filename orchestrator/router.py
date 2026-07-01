@@ -75,6 +75,35 @@ def dispatch(agent_name: str, task_type: str, payload: dict) -> dict:
         return {"status": "failed", "error": str(e)}
 
 
+def dispatch_with_agent(agent, agent_name: str, task_type: str, payload: dict) -> dict:
+    """Same as dispatch() but uses a pre-configured agent instance (e.g. with _on_chunk set)."""
+    task_id = create_task(agent_name, task_type, payload)
+    update_task_status(task_id, "running")
+    try:
+        result: AgentResult = agent.run(payload)
+        if result.error:
+            update_task_status(task_id, "failed")
+            log_agent_action(agent_name, task_type, {"error": result.error})
+            return {"status": "failed", "error": result.error}
+        if result.requires_approval:
+            approval_id = queue_approval(task_id, agent_name, result.action_type, result.preview)
+            update_task_status(task_id, "awaiting_approval")
+            log_agent_action(agent_name, task_type, {"approval_id": approval_id})
+            return {"status": "awaiting_approval", "approval_id": approval_id, "preview": result.preview}
+        update_task_status(task_id, "completed")
+        log_agent_action(agent_name, task_type, result.output)
+        return {"status": "completed", "output": result.output}
+    except EnvironmentError as e:
+        update_task_status(task_id, "failed")
+        log_agent_action(agent_name, task_type, {"error": str(e)})
+        return {"status": "failed", "error": str(e)}
+    except Exception as e:
+        logger.exception("[router] dispatch_with_agent failed for %s", agent_name)
+        update_task_status(task_id, "failed")
+        log_agent_action(agent_name, task_type, {"error": str(e)})
+        return {"status": "failed", "error": str(e)}
+
+
 def execute_approved(approval_id: str) -> dict:
     ok, err = validate_approval_id(approval_id)
     if not ok:
@@ -108,8 +137,13 @@ def _trigger_handoffs(agent: str, action_type: str, preview: dict, result: dict)
             leads = preview.get("leads", [])
             if not leads:
                 return
-            logger.info("[handoff] lead_gen → sales: %d new lead(s) in CRM", len(leads))
             lead = leads[0]
+            # Only hand off if lead has a real Airtable record ID (not a mock ID)
+            lead_id = lead.get("id", "")
+            if not lead_id or lead_id.startswith("mock") or not lead_id.startswith("rec"):
+                logger.info("[handoff] skipped — lead has no real Airtable ID (mock data)")
+                return
+            logger.info("[handoff] lead_gen → sales: %d new lead(s) in CRM", len(leads))
             dispatch("sales", "handoff_from_lead_gen", {"lead": lead})
 
     except Exception as e:

@@ -3,7 +3,7 @@ import requests
 from agents.base import BaseAgent, AgentResult, Tool
 from tools.airtable_crm import add_leads_to_crm
 from utils.json_parser import extract_json
-from utils.config_loader import get_model, get_max_tokens
+from utils.config_loader import get_model, get_max_tokens, get_limit
 
 SYSTEM_PROMPT = """
 You are the Lead Generation specialist for a real estate SaaS startup.
@@ -73,7 +73,9 @@ class LeadGenAgent(BaseAgent):
         ]
 
     def _search_apollo(self, job_titles: list, industry: str = "Real Estate",
-                       location: str = "United States", limit: int = 20) -> dict:
+                       location: str = "United States", limit: int = None) -> dict:
+        if limit is None:
+            limit = get_limit("leads_per_run", fallback=20)
         api_key = os.getenv("APOLLO_API_KEY")
         if not api_key:
             return {"mock": True, "leads": self._mock_leads()}

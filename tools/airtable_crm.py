@@ -90,7 +90,8 @@ def mark_lead_contacted(lead_id: str) -> dict:
 def get_crm_stats() -> dict:
     table = _get_table("Leads")
     if not table:
-        return {"total": 12, "new": 4, "contacted": 5, "demo": 2, "won": 1, "stub": True}
+        return {"total": 12, "new": 4, "contacted": 5, "demo": 2, "won": 1, "stub": True,
+                "by_stage": {"New": 4, "Contacted": 3, "Replied": 2, "Demo Scheduled": 2, "Won": 1}}
 
     try:
         all_records = table.all()
@@ -101,3 +102,50 @@ def get_crm_stats() -> dict:
         return {"total": len(all_records), "by_stage": stages}
     except Exception as e:
         return {"error": str(e)}
+
+
+_STUB_LEADS_BY_STAGE = {
+    "New": [
+        {"name": "Sarah Chen", "title": "Broker", "company": "Chen Realty", "email": "s.chen@chenrealty.com", "score": 82},
+        {"name": "Marcus Webb", "title": "Team Lead", "company": "Webb Group", "email": "m.webb@webb.com", "score": 75},
+        {"name": "Diana Torres", "title": "Agent", "company": "Torres RE", "email": "d.torres@tresalty.com", "score": 68},
+        {"name": "Kevin Park", "title": "Broker-Owner", "company": "Park Properties", "email": "k.park@parkprop.com", "score": 91},
+    ],
+    "Contacted": [
+        {"name": "Lisa Monroe", "title": "Managing Broker", "company": "Monroe & Co", "email": "l.monroe@monroe.com", "score": 88},
+        {"name": "James Okafor", "title": "Realtor", "company": "Okafor Group", "email": "j.okafor@okafor.com", "score": 72},
+        {"name": "Priya Nair", "title": "Broker", "company": "Nair Homes", "email": "p.nair@nairhomes.com", "score": 79},
+    ],
+    "Replied": [
+        {"name": "Tom Bradley", "title": "VP Sales", "company": "Bradley RE", "email": "t.bradley@bre.com", "score": 85},
+        {"name": "Angela Reyes", "title": "Broker", "company": "Reyes Realty", "email": "a.reyes@reyesrealty.com", "score": 77},
+    ],
+    "Demo Scheduled": [
+        {"name": "David Kim", "title": "Broker-Owner", "company": "Kim Properties", "email": "d.kim@kimprops.com", "score": 94},
+        {"name": "Fatima Hassan", "title": "Team Lead", "company": "Hassan Group", "email": "f.hassan@hassan.com", "score": 90},
+    ],
+    "Won": [
+        {"name": "Robert Liu", "title": "Managing Broker", "company": "Liu & Partners", "email": "r.liu@liupartners.com", "score": 97},
+    ],
+}
+
+
+def get_leads_by_stage(stage: str, limit: int = 50) -> list[dict]:
+    table = _get_table("Leads")
+    if not table:
+        return _STUB_LEADS_BY_STAGE.get(stage, [])
+
+    try:
+        records = table.all(formula=f"{{Stage}}='{stage}'")[:limit]
+        return [
+            {
+                "name": r["fields"].get("Name", ""),
+                "title": r["fields"].get("Title", ""),
+                "company": r["fields"].get("Company", ""),
+                "email": r["fields"].get("Email", ""),
+                "score": r["fields"].get("Score", 0),
+            }
+            for r in records
+        ]
+    except Exception:
+        return []

@@ -8,7 +8,7 @@ load_dotenv()
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from tools.airtable_crm import get_crm_stats, get_uncontacted_leads
+from tools.airtable_crm import get_crm_stats, get_uncontacted_leads, get_leads_by_stage
 from dashboard.styles import apply_styles
 
 st.set_page_config(page_title="CRM — BizOS", layout="wide")
@@ -57,7 +57,15 @@ if leads:
             else:
                 st.info(result.get("status", "Done"))
 else:
-    st.info("No uncontacted leads. Run the Lead Gen agent to discover new prospects.")
+    st.markdown(
+        """<div class="empty-state">
+        <div class="empty-icon">[--]</div>
+        <div class="empty-title">No uncontacted leads</div>
+        <div class="empty-sub">Run Lead Gen to discover new prospects.</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     if st.button("Run Lead Gen Agent"):
         from orchestrator.router import dispatch
         with st.spinner("Finding leads..."):
@@ -71,6 +79,7 @@ else:
 
 st.markdown("---")
 st.subheader("Pipeline Funnel")
+st.caption("Click a stage to drill down into leads at that stage.")
 
 STAGES = ["New", "Researched", "Contacted", "Replied", "Demo Scheduled", "Proposal Sent", "Won", "Lost"]
 counts = [by_stage.get(s, 0) for s in STAGES]
@@ -83,6 +92,34 @@ fig = go.Figure(go.Funnel(
         "#407E3C", "#5a9e56", "#6dbf67", "#85cc80",
         "#9dd99a", "#b5e6b4", "#cef3cc", "#e8f5e9"
     ]),
+    hovertemplate="<b>%{y}</b><br>%{x} leads<br>%{percentInitial} of total<extra></extra>",
 ))
-fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=280)
-st.plotly_chart(fig, use_container_width=True)
+fig.update_layout(
+    margin=dict(l=0, r=0, t=10, b=0),
+    height=300,
+    clickmode="event+select",
+)
+
+event = st.plotly_chart(
+    fig,
+    use_container_width=True,
+    on_select="rerun",
+    selection_mode="points",
+    key="funnel_chart",
+)
+
+# Drill-down: show leads for selected stage
+if event and event.get("selection") and event["selection"].get("points"):
+    pt = event["selection"]["points"][0]
+    # Funnel point_index maps to STAGES list
+    idx = pt.get("pointIndex", pt.get("point_index", None))
+    if idx is not None and 0 <= idx < len(STAGES):
+        selected_stage = STAGES[idx]
+        stage_leads = get_leads_by_stage(selected_stage)
+        st.markdown(f"#### {selected_stage} — {len(stage_leads)} lead(s)")
+        if stage_leads:
+            sdf = pd.DataFrame(stage_leads)
+            show = [c for c in ["name", "title", "company", "email", "score"] if c in sdf.columns]
+            st.dataframe(sdf[show], use_container_width=True)
+        else:
+            st.info(f"No leads in {selected_stage} stage.")
